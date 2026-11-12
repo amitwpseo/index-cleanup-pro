@@ -1,0 +1,28 @@
+.icp-wrap .icp-body{margin-top:16px}
+.icp-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:16px}
+.icp-card,.icp-panel{background:#fff;border:1px solid #dcdcde;border-radius:6px;padding:16px}
+.icp-panel{margin-bottom:16px}
+.icp-panel h2{margin-top:0;font-size:15px}
+.icp-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+.icp-grid .icp-panel{margin-bottom:0}
+.icp-grid+.icp-panel{margin-top:16px}
+.icp-num{display:block;font-size:26px;font-weight:600;line-height:1.2;color:#1d2327}
+.icp-num small{font-size:13px;font-weight:400;color:#646970}
+.icp-lab{display:block;color:#646970;margin-top:4px}
+.icp-muted{color:#787c82}
+.icp-bar{height:8px;background:#f0f0f1;border-radius:4px;overflow:hidden;margin:8px 0 4px}
+.icp-bar span{display:block;height:100%;width:0;background:#2271b1;transition:width .3s}
+.icp-badge{display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600;line-height:18px}
+.icp-ok{background:#e7f5ea;color:#1e6b2f}
+.icp-bad{background:#fcebea;color:#a1241d}
+.icp-warn{background:#fcf3dc;color:#7a5b00}
+.icp-steps{margin-left:18px}
+.icp-list{list-style:disc;margin-left:18px}
+.icp-summary{max-width:520px;margin:12px 0}
+.icp-summary td:last-child{text-align:right;width:120px}
+.icp-actions{margin-top:16px}
+.icp-danger{margin-top:12px}
+.icp-panel details{margin:12px 0}
+.icp-panel summary{cursor:pointer;font-weight:600}
+.column-path code{word-break:break-all}
+@media (max-width:782px){.icp-num{font-size:22px}}
