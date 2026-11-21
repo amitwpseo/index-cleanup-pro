@@ -40,17 +40,25 @@ class ICP_Frontend {
 			return;
 		}
 
+		// List first: one indexed lookup. Safety checks only run on a match,
+		// so ordinary page views never pay for them.
+		$row = ICP_DB::find_by_path( $path );
+		if ( ! $row ) {
+			// Pattern rules (cached in one option, so no query when there are none).
+			$rid = ICP_Rules::match( $path );
+			if ( $rid && ! ICP_Util::is_protected( $path ) && ! ICP_Util::find_conflict( $path ) ) {
+				ICP_Rules::record_hit( $rid );
+				self::serve_gone( $method );
+			}
+			return;
+		}
+
 		if ( ICP_Util::is_protected( $path ) ) {
 			return;
 		}
 
-		$row = ICP_DB::find_by_path( $path );
-		if ( ! $row ) {
-			return;
-		}
-
-		// Runtime real-page guard (cached): a page published later wins.
-		if ( ! (int) $row->override && self::is_real_page_cached( $path ) ) {
+		// Runtime real-page guard (cached in the plugin table): a page published later wins.
+		if ( ! (int) $row->override && self::is_real_page_cached( $row, $path ) ) {
 			return;
 		}
 
@@ -65,14 +73,14 @@ class ICP_Frontend {
 		self::serve_gone( $method );
 	}
 
-	private static function is_real_page_cached( $path ) {
-		$key = 'icp_rp_' . md5( $path );
-		$c   = get_transient( $key );
-		if ( false === $c ) {
-			$c = ICP_Util::find_conflict( $path ) ? '1' : '0';
-			set_transient( $key, $c, 12 * HOUR_IN_SECONDS );
+	private static function is_real_page_cached( $row, $path ) {
+		$fresh = ! empty( $row->guard_at ) && ( time() - strtotime( $row->guard_at . ' UTC' ) ) < 12 * HOUR_IN_SECONDS;
+		if ( $fresh ) {
+			return (bool) (int) $row->guard;
 		}
-		return '1' === $c;
+		$real = (bool) ICP_Util::find_conflict( $path );
+		ICP_DB::set_guard( (int) $row->id, $real );
+		return $real;
 	}
 
 	private static function is_self_test() {
@@ -81,7 +89,7 @@ class ICP_Frontend {
 		return '' !== $token && '' !== $sent && hash_equals( $token, $sent );
 	}
 
-	private static function serve_gone( $method ) {
+	public static function serve_gone( $method ) {
 		ICP_Cache::no_cache_headers();
 		status_header( 410 );
 		header( 'X-Robots-Tag: noindex, nofollow', true );

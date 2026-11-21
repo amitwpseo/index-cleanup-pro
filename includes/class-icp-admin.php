@@ -9,7 +9,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class ICP_Admin {
 
-	const SLUG = 'index-cleanup-pro';
+	const SLUG = 'hacked-site-index-cleaner';
 	const CAP  = 'manage_options';
 
 	private static $hook = '';
@@ -32,7 +32,7 @@ class ICP_Admin {
 	}
 
 	public static function menu() {
-		self::$hook = add_management_page( 'Index Cleanup Pro', 'Index Cleanup Pro', self::CAP, self::SLUG, array( __CLASS__, 'render' ) );
+		self::$hook = add_management_page( 'Hacked Site Index Cleaner', 'Index Cleaner', self::CAP, self::SLUG, array( __CLASS__, 'render' ) );
 	}
 
 	public static function assets( $hook ) {
@@ -53,7 +53,7 @@ class ICP_Admin {
 	}
 
 	public static function footer_credit() {
-		return 'Index Cleanup Pro ' . esc_html( ICP_VERSION ) . ' &middot; built by <a href="https://bestlocalseoservices.com/" target="_blank" rel="noopener">BLSS – Best Local SEO Services &amp; Development</a>';
+		return 'Hacked Site Index Cleaner ' . esc_html( ICP_VERSION ) . ' &middot; built by <a href="https://bestlocalseoservices.com/" target="_blank" rel="noopener">BLSS – Best Local SEO Services &amp; Development</a>';
 	}
 
 	/* ------------------------------------------------------------------ */
@@ -108,6 +108,20 @@ class ICP_Admin {
 			ICP_DB::delete_ids( array( $id ) );
 			self::notice( 'URL removed from the list.' . self::purge_note() );
 			self::redirect( 'urls' );
+		}
+
+		// Rules: toggle / delete.
+		if ( isset( $_GET['icp_action'] ) && in_array( $_GET['icp_action'], array( 'rule_delete', 'rule_toggle' ), true ) && ! empty( $_GET['id'] ) ) { // phpcs:ignore
+			$id = absint( $_GET['id'] ); // phpcs:ignore
+			check_admin_referer( 'icp_rule_' . $id );
+			if ( 'rule_delete' === $_GET['icp_action'] ) { // phpcs:ignore
+				ICP_Rules::delete( $id );
+				self::notice( 'Rule deleted.' . self::purge_note() );
+			} else {
+				ICP_Rules::toggle( $id );
+				self::notice( 'Rule updated.' . self::purge_note() );
+			}
+			self::redirect( 'rules' );
 		}
 
 		// Bulk actions from the list table (top or bottom selector).
@@ -203,6 +217,92 @@ class ICP_Admin {
 				self::redirect( 'import' );
 				break;
 
+			case 'rule_preview':
+			case 'rule_add':
+				check_admin_referer( 'icp_rule' );
+				$type = isset( $_POST['rtype'] ) ? sanitize_key( $_POST['rtype'] ) : ''; // phpcs:ignore
+				$raw  = isset( $_POST['pattern'] ) ? wp_unslash( $_POST['pattern'] ) : ''; // phpcs:ignore
+				list( $ok, $pat ) = ICP_Rules::normalize( $type, $raw );
+				if ( ! $ok ) {
+					self::notice( esc_html( $pat ), 'error' );
+					self::redirect( 'rules' );
+				}
+				if ( 'rule_add' === $do ) {
+					if ( ICP_Rules::exists( $type, $pat ) ) {
+						self::notice( 'That rule already exists.', 'warning' );
+						self::redirect( 'rules' );
+					}
+					ICP_Rules::add( $type, $pat, isset( $_POST['note'] ) ? sanitize_text_field( wp_unslash( $_POST['note'] ) ) : '' ); // phpcs:ignore
+					self::notice( 'Rule added. Matching URLs now return 410 (real pages are always skipped).' . self::purge_note() );
+					self::redirect( 'rules' );
+				}
+				$pv   = ICP_Rules::preview( $type, $pat );
+				$list = function ( $arr ) {
+					return $arr ? ' <code>' . implode( '</code>, <code>', array_map( 'esc_html', $arr ) ) . '</code>' : '';
+				};
+				$msg  = '<strong>Preview for ' . esc_html( self::rule_label( $type ) ) . ' <code>' . esc_html( $pat ) . '</code></strong><br>';
+				$msg .= sprintf( '• %d URL(s) in the 404 log would be removed.%s<br>', $pv['log']['n'], $list( $pv['log']['sample'] ) );
+				$msg .= sprintf( '• %d URL(s) already on your list match.<br>', $pv['list']['n'] );
+				if ( $pv['real']['n'] ) {
+					$msg .= sprintf( '• <strong>%d real published page(s) match</strong> and will be left alone:%s<br>', $pv['real']['n'], $list( $pv['real']['sample'] ) );
+					$msg .= 'If that looks wrong, make the pattern more specific.';
+				} else {
+					$msg .= '• No published pages match' . ( $pv['real']['capped'] ? ' (first 3,000 checked).' : '.' );
+				}
+				self::notice( $msg, $pv['real']['n'] ? 'warning' : 'info' );
+				self::redirect( 'rules', array( 'rt' => $type, 'rp' => rawurlencode( $pat ) ) );
+				break;
+
+			case 'monitor_act':
+				check_admin_referer( 'icp_monitor' );
+				$act = isset( $_POST['m_act'] ) ? sanitize_key( $_POST['m_act'] ) : ''; // phpcs:ignore
+				$min = isset( $_POST['min'] ) ? max( 0, min( 100, absint( $_POST['min'] ) ) ) : 40; // phpcs:ignore
+				if ( 'clear' === $act ) {
+					ICP_Monitor::clear();
+					self::notice( '404 log cleared.' );
+					self::redirect( 'monitor' );
+				}
+				$ids = isset( $_POST['ids'] ) ? array_map( 'absint', (array) $_POST['ids'] ) : array(); // phpcs:ignore
+				if ( 'add_score' === $act ) {
+					$ids = ICP_Monitor::ids_by_score( $min );
+				}
+				if ( ! $ids ) {
+					self::notice( 'Nothing selected.', 'warning' );
+					self::redirect( 'monitor', array( 'min' => $min ) );
+				}
+				if ( 'ignore' === $act ) {
+					$n = ICP_Monitor::ignore_ids( $ids );
+					self::notice( sprintf( '%d URL(s) hidden from this list.', $n ) );
+				} else {
+					$res   = ICP_Import::classify( ICP_Monitor::paths_for_ids( $ids ) );
+					$items = array();
+					foreach ( $res['new'] as $path ) {
+						$items[] = array( 'path' => $path, 'override' => 0 );
+					}
+					$n = $items ? ICP_DB::insert_paths( $items, '404 monitor' ) : 0;
+					ICP_Monitor::delete_ids( $ids );
+					self::notice( sprintf( '%d URL(s) added to the dead list. %d skipped (already listed, protected or real pages).', $n, max( 0, count( $ids ) - $n ) ) . self::purge_note() );
+				}
+				self::redirect( 'monitor', array( 'min' => $min ) );
+				break;
+
+			case 'retest_now':
+				check_admin_referer( 'icp_retest' );
+				if ( ICP_Tester::start( true ) ) {
+					self::notice( 'Background re-test started. It runs in small batches through WP-Cron; this page shows progress.' );
+				} else {
+					self::notice( 'There are no URLs to test.', 'warning' );
+				}
+				self::redirect( 'dashboard' );
+				break;
+
+			case 'test_alert':
+				check_admin_referer( 'icp_retest' );
+				$ok = ICP_Tester::send_alert( 0, (int) ICP_DB::stats()->total, true );
+				self::notice( $ok ? 'Test email sent to ' . esc_html( ICP_Tester::alert_address() ) . '.' : 'WordPress could not send the email. Check your site\'s mail setup (an SMTP plugin usually fixes this).', $ok ? 'success' : 'error' );
+				self::redirect( 'settings' );
+				break;
+
 			case 'save_note':
 				$id = isset( $_POST['id'] ) ? absint( $_POST['id'] ) : 0; // phpcs:ignore
 				check_admin_referer( 'icp_note_' . $id );
@@ -226,6 +326,13 @@ class ICP_Admin {
 						'ip_source'           => in_array( $ip, array( 'remote_addr', 'cf', 'xff' ), true ) ? $ip : 'remote_addr',
 						'purge_cache'         => empty( $_POST['purge_cache'] ) ? 0 : 1, // phpcs:ignore
 						'delete_on_uninstall' => empty( $_POST['delete_on_uninstall'] ) ? 0 : 1, // phpcs:ignore
+						'monitor_enabled'     => empty( $_POST['monitor_enabled'] ) ? 0 : 1, // phpcs:ignore
+						'search_mode'         => in_array( isset( $_POST['search_mode'] ) ? sanitize_key( $_POST['search_mode'] ) : '', array( 'off', 'spam', 'all' ), true ) ? sanitize_key( $_POST['search_mode'] ) : 'spam', // phpcs:ignore
+						'search_threshold'    => max( 20, min( 100, isset( $_POST['search_threshold'] ) ? absint( $_POST['search_threshold'] ) : 40 ) ), // phpcs:ignore
+						'spam_words'          => isset( $_POST['spam_words'] ) ? sanitize_textarea_field( wp_unslash( $_POST['spam_words'] ) ) : '', // phpcs:ignore
+						'retest_enabled'      => empty( $_POST['retest_enabled'] ) ? 0 : 1, // phpcs:ignore
+						'alert_enabled'       => empty( $_POST['alert_enabled'] ) ? 0 : 1, // phpcs:ignore
+						'alert_email'         => isset( $_POST['alert_email'] ) ? sanitize_email( wp_unslash( $_POST['alert_email'] ) ) : '', // phpcs:ignore
 					)
 				);
 				self::notice( 'Settings saved.' );
@@ -319,7 +426,7 @@ class ICP_Admin {
 		$results = array( 'ok' => 0, 'bad' => 0, 'blocked' => 0 );
 		$last    = $after;
 		foreach ( $rows as $r ) {
-			list( $code, $note ) = self::test_url( ICP_Util::full_url( $r->path ), $token );
+			list( $code, $note ) = ICP_Tester::test_url( ICP_Util::full_url( $r->path ), $token );
 			ICP_DB::save_test( $r->id, $code, $note );
 			if ( 410 === $code ) {
 				$results['ok']++;
@@ -341,43 +448,6 @@ class ICP_Admin {
 		);
 	}
 
-	private static function test_url( $url, $token ) {
-		$resp = wp_remote_get(
-			$url,
-			array(
-				'timeout'             => 15,
-				'redirection'         => 0,
-				'limit_response_size' => 8192,
-				'user-agent'          => 'IndexCleanupPro-StatusTest/' . ICP_VERSION . '; ' . home_url( '/' ),
-				'headers'             => array( 'X-ICP-Test' => $token ),
-				'sslverify'           => apply_filters( 'https_local_ssl_verify', false ),
-			)
-		);
-		if ( is_wp_error( $resp ) ) {
-			return array( 0, 'error: ' . $resp->get_error_message() );
-		}
-		$code = (int) wp_remote_retrieve_response_code( $resp );
-		$body = (string) wp_remote_retrieve_body( $resp );
-		if ( 410 === $code ) {
-			return array( 410, 'OK' );
-		}
-		if ( $code >= 300 && $code < 400 ) {
-			$loc = wp_remote_retrieve_header( $resp, 'location' );
-			return array( $code, 'redirects to ' . ( $loc ? $loc : '?' ) . ' — Google keeps redirected URLs' );
-		}
-		$challenge = preg_match( '/One moment, please|captcha|cf-chl|challenge-platform|Just a moment|imunify|bot verification/i', $body );
-		if ( in_array( $code, array( 403, 429, 503 ), true ) || ( 200 === $code && $challenge ) ) {
-			return array( $code, 'blocked by host (firewall/bot check) — check this URL in a browser' );
-		}
-		if ( 404 === $code ) {
-			return array( 404, 'returns 404 not 410 — plugin not reached (cache or server rule?)' );
-		}
-		if ( 200 === $code ) {
-			return array( 200, 'page loads (200) — a cached copy or a real page; purge cache and check' );
-		}
-		return array( $code, 'unexpected status' );
-	}
-
 	/* ------------------------------------------------------------------ */
 	/* Rendering                                                           */
 	/* ------------------------------------------------------------------ */
@@ -391,9 +461,11 @@ class ICP_Admin {
 			'dashboard' => 'Dashboard',
 			'urls'      => 'URLs',
 			'import'    => 'Add / Import',
+			'rules'     => 'Rules',
+			'monitor'   => '404 Monitor',
 			'settings'  => 'Settings',
 		);
-		echo '<div class="wrap icp-wrap"><h1>Index Cleanup Pro</h1>';
+		echo '<div class="wrap icp-wrap"><h1>Hacked Site Index Cleaner</h1>';
 		self::show_notice();
 		echo '<nav class="nav-tab-wrapper">';
 		foreach ( $tabs as $k => $l ) {
@@ -407,6 +479,12 @@ class ICP_Admin {
 				break;
 			case 'import':
 				self::tab_import();
+				break;
+			case 'rules':
+				self::tab_rules();
+				break;
+			case 'monitor':
+				self::tab_monitor();
 				break;
 			case 'settings':
 				self::tab_settings();
@@ -465,6 +543,43 @@ class ICP_Admin {
 					<p><span class="icp-badge icp-warn">Off</span> <?php echo $s['sitemap_enabled'] ? 'End date has passed.' : 'Disabled in Settings.'; ?> Remove <code>dead-urls.xml</code> from Search Console if it is still listed there.</p>
 				<?php endif; ?>
 				<p class="icp-muted">Do not add these URLs to robots.txt — Google must be able to crawl them to see the 410.</p>
+			</div>
+
+			<div class="icp-panel">
+				<h2>Automatic re-test</h2>
+				<?php
+				$last = get_option( ICP_Tester::LAST );
+				$next = wp_next_scheduled( 'icp_weekly_retest' );
+				$stt  = get_option( ICP_Tester::STATE );
+				if ( ICP_Tester::running() && is_array( $stt ) ) {
+					printf( '<p><span class="icp-badge icp-warn">Running</span> %s of %s tested…</p>', esc_html( number_format_i18n( (int) $stt['done'] ) ), esc_html( number_format_i18n( (int) $stt['total'] ) ) );
+				} elseif ( is_array( $last ) ) {
+					printf(
+						'<p>Last run %s: <strong>%s OK</strong>, <strong>%s</strong> issue(s), %s blocked by host.</p>',
+						esc_html( get_date_from_gmt( gmdate( 'Y-m-d H:i:s', (int) $last['at'] ), 'Y-m-d H:i' ) ),
+						esc_html( number_format_i18n( (int) $last['ok'] ) ),
+						esc_html( number_format_i18n( (int) $last['bad'] ) ),
+						esc_html( number_format_i18n( (int) $last['blocked'] ) )
+					);
+				} else {
+					echo '<p class="icp-muted">No automatic run yet.</p>';
+				}
+				?>
+				<p class="icp-muted"><?php echo $s['retest_enabled'] ? 'Weekly' . ( $next ? ', next ' . esc_html( get_date_from_gmt( gmdate( 'Y-m-d H:i:s', $next ), 'Y-m-d H:i' ) ) : '' ) . '. An email is sent if a URL stops returning 410.' : 'Turned off in Settings.'; ?></p>
+				<form method="post" action="<?php echo esc_url( self::url( 'dashboard' ) ); ?>">
+					<?php wp_nonce_field( 'icp_retest' ); ?>
+					<button name="icp_do" value="retest_now" class="button" <?php disabled( 0, $total ); ?>>Run background re-test now</button>
+				</form>
+			</div>
+
+			<div class="icp-panel">
+				<h2>Protection extras</h2>
+				<?php $mc = ICP_Monitor::counts(); ?>
+				<ul class="icp-list">
+					<li><strong><?php echo number_format_i18n( ICP_Rules::count() ); ?></strong> pattern rule(s) · <a href="<?php echo esc_url( self::url( 'rules' ) ); ?>">manage</a></li>
+					<li><strong><?php echo number_format_i18n( (int) $mc->fresh ); ?></strong> new 404 URLs logged, <strong><?php echo number_format_i18n( (int) $mc->likely ); ?></strong> look like spam · <a href="<?php echo esc_url( self::url( 'monitor' ) ); ?>">review</a></li>
+					<li><strong><?php echo number_format_i18n( ICP_Search::blocked_count() ); ?></strong> spam searches blocked (mode: <?php echo esc_html( $s['search_mode'] ); ?>)</li>
+				</ul>
 			</div>
 
 			<div class="icp-panel">
@@ -645,6 +760,140 @@ class ICP_Admin {
 		<?php
 	}
 
+
+	private static function rule_label( $type ) {
+		$l = array( 'prefix' => 'starts with', 'contains' => 'contains', 'regex' => 'regex' );
+		return isset( $l[ $type ] ) ? $l[ $type ] : $type;
+	}
+
+	private static function tab_rules() {
+		$rt = isset( $_GET['rt'] ) ? sanitize_key( $_GET['rt'] ) : 'prefix'; // phpcs:ignore
+		$rp = isset( $_GET['rp'] ) ? sanitize_text_field( rawurldecode( wp_unslash( $_GET['rp'] ) ) ) : ''; // phpcs:ignore
+		?>
+		<div class="icp-panel">
+			<h2>Add a rule</h2>
+			<p>One rule removes a whole group of spam URLs, including ones you have not found yet. Matching URLs return <strong>410 Gone</strong>. Real published pages and protected paths are always skipped.</p>
+			<form method="post" action="<?php echo esc_url( self::url( 'rules' ) ); ?>">
+				<?php wp_nonce_field( 'icp_rule' ); ?>
+				<p>
+					<select name="rtype">
+						<option value="prefix" <?php selected( 'prefix', $rt ); ?>>URL starts with</option>
+						<option value="contains" <?php selected( 'contains', $rt ); ?>>URL contains</option>
+						<option value="regex" <?php selected( 'regex', $rt ); ?>>Regular expression</option>
+					</select>
+					<input type="text" name="pattern" value="<?php echo esc_attr( $rp ); ?>" class="regular-text" placeholder="category/giochi/" required>
+					<input type="text" name="note" class="regular-text" placeholder="Note (optional)" maxlength="255">
+				</p>
+				<p>
+					<button name="icp_do" value="rule_preview" class="button">Preview</button>
+					<button name="icp_do" value="rule_add" class="button button-primary">Add rule</button>
+				</p>
+			</form>
+			<details>
+				<summary>Examples</summary>
+				<ul class="icp-list">
+					<li><strong>Starts with</strong> <code>category/giochi/</code> – everything under that folder.</li>
+					<li><strong>Contains</strong> <code>casino</code> – any URL with that word in it.</li>
+					<li><strong>Regex</strong> <code>^[a-z]{2}-[0-9]{4,}$</code> – advanced; applied to the path without slashes, case-insensitive.</li>
+				</ul>
+				<p class="icp-muted">Rules are checked only for URLs that are not already on your list. Use <strong>Preview</strong> first: it shows what is matched in the 404 log and which real pages would be protected. Rule matches are not in <code>dead-urls.xml</code>; add the actual URLs from the 404 Monitor or an import if you want Google to be nudged to recrawl them.</p>
+			</details>
+		</div>
+
+		<div class="icp-panel">
+			<h2>Your rules</h2>
+			<?php
+			$rules = ICP_Rules::all();
+			if ( ! $rules ) {
+				echo '<p class="icp-muted">No rules yet.</p>';
+			} else {
+				echo '<table class="widefat striped"><thead><tr><th>Type</th><th>Pattern</th><th>Note</th><th>410s served</th><th>Last hit</th><th>Status</th><th></th></tr></thead><tbody>';
+				foreach ( $rules as $r ) {
+					$tg = wp_nonce_url( self::url( 'rules', array( 'icp_action' => 'rule_toggle', 'id' => $r->id ) ), 'icp_rule_' . $r->id );
+					$dl = wp_nonce_url( self::url( 'rules', array( 'icp_action' => 'rule_delete', 'id' => $r->id ) ), 'icp_rule_' . $r->id );
+					printf(
+						'<tr><td>%s</td><td><code>%s</code></td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td><a href="%s">%s</a> | <a href="%s" onclick="return confirm(\'Delete this rule?\')">Delete</a></td></tr>',
+						esc_html( self::rule_label( $r->rtype ) ),
+						esc_html( $r->pattern ),
+						esc_html( $r->note ),
+						esc_html( number_format_i18n( (int) $r->hits ) ),
+						esc_html( $r->last_hit ? get_date_from_gmt( $r->last_hit, 'Y-m-d H:i' ) : '–' ),
+						$r->active ? '<span class="icp-badge icp-ok">Active</span>' : '<span class="icp-badge icp-warn">Paused</span>',
+						esc_url( $tg ),
+						$r->active ? 'Pause' : 'Resume',
+						esc_url( $dl )
+					); // phpcs:ignore
+				}
+				echo '</tbody></table>';
+			}
+			?>
+		</div>
+		<?php
+	}
+
+	private static function tab_monitor() {
+		$min = isset( $_GET['min'] ) ? max( 0, min( 100, absint( $_GET['min'] ) ) ) : 40; // phpcs:ignore
+		$c   = ICP_Monitor::counts();
+		$on  = (int) ICP_DB::setting( 'monitor_enabled' );
+		$rows = ICP_Monitor::rows( $min, 200 );
+		?>
+		<div class="icp-panel">
+			<h2>404 Monitor</h2>
+			<p>Lists addresses that visitors and bots requested but that do not exist, with a spam score. Spam URLs missing from your Search Console export often show up here. Review the list, then add the real spam to the dead list.</p>
+			<p>
+				<?php echo $on ? '<span class="icp-badge icp-ok">Logging</span>' : '<span class="icp-badge icp-warn">Off</span> (enable in Settings)'; ?>
+				&nbsp;<?php echo esc_html( number_format_i18n( (int) $c->fresh ) ); ?> new URLs logged · <?php echo esc_html( number_format_i18n( (int) $c->likely ) ); ?> with score 40+
+			</p>
+			<form method="get" action="<?php echo esc_url( admin_url( 'tools.php' ) ); ?>">
+				<input type="hidden" name="page" value="<?php echo esc_attr( self::SLUG ); ?>"><input type="hidden" name="tab" value="monitor">
+				Show score at least <input type="number" name="min" min="0" max="100" value="<?php echo (int) $min; ?>" class="small-text">
+				<button class="button">Filter</button>
+				<span class="icp-muted">0 = everything · 20+ suspicious · 40+ likely spam · 60+ high</span>
+			</form>
+		</div>
+
+		<form method="post" action="<?php echo esc_url( self::url( 'monitor' ) ); ?>" class="icp-panel">
+			<?php wp_nonce_field( 'icp_monitor' ); ?>
+			<input type="hidden" name="icp_do" value="monitor_act">
+			<input type="hidden" name="min" value="<?php echo (int) $min; ?>">
+			<?php if ( ! $rows ) : ?>
+				<p class="icp-muted">Nothing at this score level yet. Real 404s appear here as visitors and bots hit them.</p>
+			<?php else : ?>
+				<table class="widefat striped">
+					<thead><tr><td class="check-column"><input type="checkbox" onclick="jQuery('.icp-m-cb').prop('checked',this.checked)"></td><th>URL</th><th>Score</th><th>Why</th><th>Hits</th><th>Last seen</th><th>Visitor</th></tr></thead>
+					<tbody>
+					<?php
+					foreach ( $rows as $r ) {
+						list( $lab, $cls ) = ICP_Spam::label( (int) $r->score );
+						printf(
+							'<tr><th class="check-column"><input type="checkbox" class="icp-m-cb" name="ids[]" value="%d"></th><td><code>/%s/</code></td><td><span class="icp-badge %s">%d %s</span></td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>',
+							(int) $r->id,
+							esc_html( $r->path ),
+							esc_attr( $cls ),
+							(int) $r->score,
+							esc_html( $lab ),
+							esc_html( $r->reasons ),
+							esc_html( number_format_i18n( (int) $r->hits ) ),
+							esc_html( get_date_from_gmt( $r->last_seen, 'Y-m-d H:i' ) ),
+							esc_html( wp_trim_words( $r->last_ua, 6, '…' ) )
+						); // phpcs:ignore
+					}
+					?>
+					</tbody>
+				</table>
+				<p class="icp-muted">Showing the top 200 for this filter.</p>
+			<?php endif; ?>
+			<p class="icp-actions">
+				<button name="m_act" value="add" class="button button-primary" <?php disabled( ! $rows ); ?>>Add selected to dead list</button>
+				<button name="m_act" value="ignore" class="button" <?php disabled( ! $rows ); ?>>Hide selected (not spam)</button>
+				<button name="m_act" value="add_score" class="button" onclick="return confirm('Add ALL logged URLs with score <?php echo (int) $min; ?> or more to the dead list?')">Add everything with score <?php echo (int) $min; ?>+</button>
+				<button name="m_act" value="clear" class="button" onclick="return confirm('Clear the whole 404 log?')">Clear log</button>
+			</p>
+			<p class="icp-muted">Added URLs go through the same safety checks as an import (protected paths and real pages are skipped).</p>
+		</form>
+		<?php
+	}
+
 	private static function tab_settings() {
 		$s = ICP_DB::settings();
 		?>
@@ -676,11 +925,36 @@ class ICP_Admin {
 					<label><input type="checkbox" name="purge_cache" value="1" <?php checked( 1, (int) $s['purge_cache'] ); ?>> Purge the page cache when the list changes</label>
 					<p class="description">Supports WP Fastest Cache, LiteSpeed Cache, W3 Total Cache, WP Rocket and WP Super Cache. Needed so cached copies of listed URLs stop being served.</p>
 				</td></tr>
+				<tr><th scope="row">404 monitor</th><td>
+					<label><input type="checkbox" name="monitor_enabled" value="1" <?php checked( 1, (int) $s['monitor_enabled'] ); ?>> Log URLs that return 404 and score them for spam</label>
+					<p class="description">Stores the path, hit count and visitor agent (no IP address). Capped at <?php echo (int) $s['monitor_max']; ?> URLs; low-score entries are removed after 90 days.</p>
+				</td></tr>
+				<tr><th scope="row">Search spam</th><td>
+					<fieldset>
+						<label><input type="radio" name="search_mode" value="off" <?php checked( 'off', $s['search_mode'] ); ?>> Off</label><br>
+						<label><input type="radio" name="search_mode" value="spam" <?php checked( 'spam', $s['search_mode'] ); ?>> Block spam search phrases with 410 + noindex (recommended)</label><br>
+						<label><input type="radio" name="search_mode" value="all" <?php checked( 'all', $s['search_mode'] ); ?>> Also set <code>noindex</code> on every search results page</label>
+					</fieldset>
+					<p>Spam score needed to block: <input type="number" min="20" max="100" name="search_threshold" value="<?php echo (int) $s['search_threshold']; ?>" class="small-text"> <span class="description">40 = one clear spam word (casino, viagra…) or Japanese/Chinese text on a non-Japanese site. Lower blocks more.</span></p>
+					<p><label for="spam_words">Extra spam words (comma or space separated)</label><br><textarea id="spam_words" name="spam_words" rows="2" class="large-text"><?php echo esc_textarea( $s['spam_words'] ); ?></textarea></p>
+					<p class="description">Normal visitor searches are not affected. Googlebot sees a 410 for spam phrases, which removes them from the index.</p>
+				</td></tr>
+				<tr><th scope="row">Weekly re-test &amp; alert</th><td>
+					<label><input type="checkbox" name="retest_enabled" value="1" <?php checked( 1, (int) $s['retest_enabled'] ); ?>> Re-test every listed URL once a week in the background</label><br>
+					<label><input type="checkbox" name="alert_enabled" value="1" <?php checked( 1, (int) $s['alert_enabled'] ); ?>> Email me if any URL stops returning 410</label><br>
+					<p><label for="alert_email">Send alerts to</label> <input type="email" id="alert_email" name="alert_email" value="<?php echo esc_attr( $s['alert_email'] ); ?>" placeholder="<?php echo esc_attr( get_option( 'admin_email' ) ); ?>" class="regular-text"></p>
+					<p class="description">Uses WP-Cron. Leave the address empty to use the site admin email.</p>
+				</td></tr>
 				<tr><th scope="row">Uninstall</th><td>
 					<label><input type="checkbox" name="delete_on_uninstall" value="1" <?php checked( 1, (int) $s['delete_on_uninstall'] ); ?>> Delete all plugin data when the plugin is deleted</label>
 				</td></tr>
 			</table>
 			<p><button class="button button-primary">Save settings</button></p>
+		</form>
+		<form method="post" action="<?php echo esc_url( self::url( 'settings' ) ); ?>" class="icp-panel">
+			<?php wp_nonce_field( 'icp_retest' ); ?>
+			<button name="icp_do" value="test_alert" class="button">Send a test alert email</button>
+			<span class="icp-muted">to <?php echo esc_html( ICP_Tester::alert_address() ); ?> (save settings first if you changed the address)</span>
 		</form>
 		<?php
 	}

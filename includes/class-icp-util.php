@@ -42,6 +42,19 @@ class ICP_Util {
 			$host  = isset( $parts['host'] ) ? strtolower( $parts['host'] ) : null;
 			$raw   = isset( $parts['path'] ) ? $parts['path'] : '';
 		}
+		// Bare domain without scheme, e.g. "example.com/page" or "www.example.com/page/".
+		if ( null === $host && '' !== $raw && '/' !== $raw[0] ) {
+			$slash = strpos( $raw, '/' );
+			$first = strtolower( false === $slash ? $raw : substr( $raw, 0, $slash ) );
+			$bare  = preg_replace( '/^www\./', '', $first );
+			if ( $bare === self::site_host() ) {
+				$host = $first;
+				$raw  = false === $slash ? '' : substr( $raw, $slash );
+			} elseif ( false !== $slash && preg_match( '/^(www\.)?([a-z0-9-]+\.)+[a-z]{2,}$/', $first ) ) {
+				$host = $first;
+				$raw  = substr( $raw, $slash );
+			}
+		}
 		$path = self::clean( $raw );
 		$home = self::home_path();
 		if ( '' !== $home && ( $path === $home || 0 === strpos( $path, $home . '/' ) ) ) {

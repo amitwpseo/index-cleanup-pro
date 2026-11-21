@@ -57,7 +57,7 @@ class ICP_List_Table extends WP_List_Table {
 		global $wpdb;
 		$t       = ICP_DB::urls_table();
 		$current = isset( $_GET['view'] ) ? sanitize_key( $_GET['view'] ) : 'all'; // phpcs:ignore
-		$base    = admin_url( 'tools.php?page=index-cleanup-pro&tab=urls' );
+		$base    = admin_url( 'tools.php?page=hacked-site-index-cleaner&tab=urls' );
 		$counts  = array(
 			'all'      => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$t}" ),
 			'gbot'     => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$t} WHERE gbot_hits > 0" ),
@@ -143,9 +143,9 @@ class ICP_List_Table extends WP_List_Table {
 		if ( (int) $item->override ) {
 			$out .= ' <span class="icp-badge icp-warn" title="Added despite matching a published page">forced</span>';
 		}
-		$base    = admin_url( 'tools.php?page=index-cleanup-pro&tab=urls' );
+		$base    = admin_url( 'tools.php?page=hacked-site-index-cleaner&tab=urls' );
 		$del     = wp_nonce_url( add_query_arg( array( 'icp_action' => 'delete_one', 'id' => $item->id ), $base ), 'icp_row_' . $item->id );
-		$note    = add_query_arg( array( 'tab' => 'edit', 'id' => $item->id ), admin_url( 'tools.php?page=index-cleanup-pro' ) );
+		$note    = add_query_arg( array( 'tab' => 'edit', 'id' => $item->id ), admin_url( 'tools.php?page=hacked-site-index-cleaner' ) );
 		$actions = array(
 			'edit'   => '<a href="' . esc_url( $note ) . '">Edit note</a>',
 			'delete' => '<a href="' . esc_url( $del ) . '" class="icp-confirm" data-msg="Remove this URL from the list? It will stop returning 410.">Remove</a>',

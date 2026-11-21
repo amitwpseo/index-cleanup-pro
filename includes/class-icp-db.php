@@ -35,6 +35,14 @@ class ICP_DB {
 			'purge_cache'        => 1,
 			'delete_on_uninstall'=> 0,
 			'test_token'         => '',
+			'monitor_enabled'    => 1,
+			'monitor_max'        => 5000,
+			'search_mode'        => 'spam', // off | spam | all
+			'search_threshold'   => 40,
+			'spam_words'         => '',
+			'retest_enabled'     => 1,
+			'alert_enabled'      => 1,
+			'alert_email'        => '',
 		);
 	}
 
@@ -71,10 +79,18 @@ class ICP_DB {
 		if ( ! wp_next_scheduled( 'icp_daily_cleanup' ) ) {
 			wp_schedule_event( time() + HOUR_IN_SECONDS, 'daily', 'icp_daily_cleanup' );
 		}
+		if ( ! wp_next_scheduled( 'icp_weekly_retest' ) ) {
+			wp_schedule_event( time() + DAY_IN_SECONDS, 'weekly', 'icp_weekly_retest' );
+		}
+		if ( class_exists( 'ICP_Rules', false ) ) {
+			ICP_Rules::rebuild_cache();
+		}
 	}
 
 	public static function deactivate() {
 		wp_clear_scheduled_hook( 'icp_daily_cleanup' );
+		wp_clear_scheduled_hook( 'icp_weekly_retest' );
+		wp_clear_scheduled_hook( 'icp_retest_tick' );
 	}
 
 	public static function maybe_upgrade() {
@@ -106,6 +122,8 @@ class ICP_DB {
   test_code smallint(5) NOT NULL DEFAULT 0,
   test_note varchar(255) NOT NULL DEFAULT '',
   test_at datetime NULL DEFAULT NULL,
+  guard tinyint(1) NOT NULL DEFAULT 0,
+  guard_at datetime NULL DEFAULT NULL,
   PRIMARY KEY  (id),
   UNIQUE KEY path_hash (path_hash),
   KEY gbot_hits (gbot_hits),
@@ -127,6 +145,41 @@ class ICP_DB {
 ) {$charset};"
 		);
 
+		$rules = $wpdb->prefix . 'icp_rules';
+		dbDelta(
+			"CREATE TABLE {$rules} (
+  id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  rtype varchar(10) NOT NULL DEFAULT 'prefix',
+  pattern varchar(255) NOT NULL,
+  note varchar(255) NOT NULL DEFAULT '',
+  active tinyint(1) NOT NULL DEFAULT 1,
+  date_added datetime NOT NULL,
+  hits bigint(20) unsigned NOT NULL DEFAULT 0,
+  last_hit datetime NULL DEFAULT NULL,
+  PRIMARY KEY  (id)
+) {$charset};"
+		);
+
+		$m404 = $wpdb->prefix . 'icp_404';
+		dbDelta(
+			"CREATE TABLE {$m404} (
+  id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  path_hash char(32) NOT NULL,
+  path varchar(500) NOT NULL,
+  hits bigint(20) unsigned NOT NULL DEFAULT 1,
+  first_seen datetime NOT NULL,
+  last_seen datetime NOT NULL,
+  score smallint(5) NOT NULL DEFAULT 0,
+  reasons varchar(255) NOT NULL DEFAULT '',
+  last_ua varchar(190) NOT NULL DEFAULT '',
+  status varchar(10) NOT NULL DEFAULT 'new',
+  PRIMARY KEY  (id),
+  UNIQUE KEY path_hash (path_hash),
+  KEY score (score),
+  KEY status (status)
+) {$charset};"
+		);
+
 		update_option( self::OPT_DBVER, ICP_DB_VERSION, false );
 	}
 
@@ -137,7 +190,22 @@ class ICP_DB {
 	public static function find_by_path( $path ) {
 		global $wpdb;
 		$t = self::urls_table();
-		return $wpdb->get_row( $wpdb->prepare( "SELECT id, path, override FROM {$t} WHERE path_hash = %s LIMIT 1", md5( $path ) ) );
+		return $wpdb->get_row( $wpdb->prepare( "SELECT id, path, override, guard, guard_at FROM {$t} WHERE path_hash = %s LIMIT 1", md5( $path ) ) );
+	}
+
+	/** Cache the real-page-guard result for a row. */
+	public static function set_guard( $id, $is_real ) {
+		global $wpdb;
+		$wpdb->update(
+			self::urls_table(),
+			array(
+				'guard'    => $is_real ? 1 : 0,
+				'guard_at' => current_time( 'mysql', true ),
+			),
+			array( 'id' => absint( $id ) ),
+			array( '%d', '%s' ),
+			array( '%d' )
+		);
 	}
 
 	public static function existing_hashes( array $hashes ) {
@@ -284,5 +352,8 @@ class ICP_DB {
 		$days = max( 1, (int) self::setting( 'log_retention_days' ) );
 		$cut  = gmdate( 'Y-m-d H:i:s', time() - $days * DAY_IN_SECONDS );
 		$wpdb->query( $wpdb->prepare( 'DELETE FROM ' . self::log_table() . ' WHERE hit_at < %s', $cut ) );
+		if ( class_exists( 'ICP_Monitor', false ) ) {
+			ICP_Monitor::prune();
+		}
 	}
 }
