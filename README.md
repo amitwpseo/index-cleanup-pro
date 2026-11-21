@@ -1,145 +1,164 @@
-# Hacked Site Index Cleaner – Remove Spam URLs from Google (WordPress Plugin)
+<div align="center">
 
-![License](https://img.shields.io/badge/license-GPL--2.0--or--later-blue) ![WordPress](https://img.shields.io/badge/WordPress-5.8%2B-21759b) ![PHP](https://img.shields.io/badge/PHP-7.4%2B-777bb4)
+<img src="docs/banner.svg" alt="Hacked Site Index Cleaner – remove spam URLs from Google" width="100%">
 
-**Get hacked-site spam URLs out of Google.** Hacked Site Index Cleaner is a free WordPress plugin that returns **410 Gone** with `noindex` for injected spam pages, serves a temporary dead-URL sitemap so Google recrawls them sooner, and shows you which URLs Google has actually revisited.
+# Hacked Site Index Cleaner
 
+**Remove hacked-site spam URLs from Google.**<br>
+A free WordPress plugin that serves **410 Gone + noindex** for injected spam pages, gives Google a dead-URL sitemap to recrawl, and proves progress with a client-ready report.
+
+![License](https://img.shields.io/badge/license-GPL--2.0--or--later-blue?style=flat-square)
+![WordPress](https://img.shields.io/badge/WordPress-5.8%2B-21759b?style=flat-square)
+![PHP](https://img.shields.io/badge/PHP-7.4%2B-777bb4?style=flat-square)
+![Version](https://img.shields.io/badge/version-1.2.0-2563eb?style=flat-square)
+
+[**Install**](#-install) · [**How it works**](#-how-it-works) · [**Features**](#-features) · [**Cleanup guide**](#-cleanup-guide) · [**FAQ**](#-faq)
+
+</div>
+
+> [!IMPORTANT]
 > This plugin cleans up **Google's index** after a hack. It does **not** scan for or remove malware. Clean the site first, then use this.
 
 ---
 
-## The problem
+## 🧨 The problem
 
-After a WordPress hack (casino spam, pharma spam, Japanese keyword hack, injected doorway pages), thousands of spam URLs can stay indexed in Google for months, even after the site is clean. They hurt your brand in search results, waste crawl budget, and can keep the "hacked" reputation alive.
+After a WordPress hack (casino spam, pharma spam, Japanese keyword hack, doorway pages), thousands of spam URLs can stay in Google for months, even after the site is clean. They damage your brand in search, waste crawl budget and keep the "hacked" reputation alive.
 
-Deleting the pages is not enough. Google needs a clear signal that each URL is permanently gone, and it needs to recrawl them to see it.
+Deleting the pages is not enough. Google needs a **clear, permanent "gone" signal** for every URL, and a reason to come back and see it.
 
-## What this plugin does
+## 🔧 How it works
 
-- **Returns `410 Gone` + `X-Robots-Tag: noindex`** for every URL on your list. It never redirects.
-- **Serves `/dead-urls.xml`**, a temporary sitemap with a `<lastmod>` date for each URL, to nudge Google into recrawling them.
-- **Tracks verified Googlebot visits** per URL (reverse + forward DNS check), so you can see real progress.
-- **Tests every URL** from your own server and reports anything that does not return 410.
-- **Protects real pages**: URLs that match published content are skipped unless you force them.
-- **Removes whole groups with pattern rules**: starts with, contains or regex, with a preview.
-- **Finds spam URLs you missed**: a 404 monitor scores missing URLs for spam and adds them in one click.
-- **Blocks spam search pages**: `/?s=casino-bonus` style URLs get 410 + noindex.
-- **Watches itself**: weekly background re-test with an email alert if a URL stops returning 410.
+```mermaid
+flowchart LR
+    A[Spam URL list<br/>Search Console export,<br/>404 Monitor, rules] --> B[Plugin answers<br/>410 Gone + noindex]
+    B --> C[/dead-urls.xml<br/>with lastmod/]
+    C --> D[Googlebot recrawls]
+    D --> E[URL dropped<br/>from Google]
+    B --> F[Weekly re-test<br/>+ email alert]
+    D --> G[Client report<br/>with trend]
+```
 
-## Why 410, and not 404, a redirect or robots.txt
+## ✨ Features
 
-| Method | Result |
+| | |
 |---|---|
-| **410 Gone** | Clear, permanent "removed" signal. Google usually drops these fastest. |
-| 404 Not Found | Works, but Google may keep rechecking for weeks. |
-| 301 redirect to the homepage | Bad. Google can treat it as a soft 404 and keep the spam URL alive. |
-| Blocking in robots.txt | Bad. Google can't crawl the URL, so it never sees the 410 and keeps it indexed. |
+| **🗂 URL manager**<br>Paste URLs or upload CSV / TXT / XML. Search Console exports work as-is. Preview before import. | **🛡 Real-page guard**<br>Published pages, the homepage, wp-admin, REST API and WooCommerce pages are never touched. |
+| **🧩 Pattern rules**<br>Remove whole groups: *starts with*, *contains* or *regex*, with a live preview of what is matched. | **🔎 404 Monitor**<br>Logs missing URLs, scores them for spam (0–100) and adds them to the dead list in one click. |
+| **🔍 Search spam protection**<br>`/?s=casino-bonus` style URLs get 410 + noindex. Normal searches are untouched. | **🗺 Dead-URL sitemap**<br>`/dead-urls.xml` with `lastmod`, auto-splits above 50,000 URLs, switches itself off on a date. |
+| **👁 Googlebot tracking**<br>Verified by reverse + forward DNS, so you see which URLs Google actually revisited. | **✅ Status tester**<br>Checks every URL really returns 410. Weekly background re-test with an **email alert** if one stops. |
+| **📄 Client report**<br>One-page report with KPIs, trend charts and a weekly table. Print / save as PDF, or email weekly, monthly or quarterly. | **🏷 White-label friendly**<br>Optional "Prepared by" branding, logo and client name on the report. |
 
-## Features
-
-**URL manager**
-- Paste URLs (full URLs or paths) or upload a CSV, TXT or XML sitemap file (up to 20,000 URLs). Google Search Console exports work as-is.
-- Preview before import: new URLs, duplicates, protected paths, invalid lines, other-domain warnings.
-- Remove one URL, bulk remove, or clear all. Search, filters and notes per URL.
+<details>
+<summary><b>More detail</b></summary>
 
 **Safety**
-- Real-page guard on import and again at request time: published posts, pages, products and other public content always win.
-- Never touches the homepage, wp-admin, login, REST API, AJAX, cron, or WooCommerce cart, checkout, account and shop pages.
-- Exact path matching only; query strings are ignored.
-
-**Pattern rules (1.1.0)**
-- Rule types: URL starts with, URL contains, regular expression.
-- Preview shows what the rule hits in the 404 log, how many listed URLs match, and which real published pages it would leave alone.
-- Too-broad patterns are refused (very short, matches the homepage or ordinary pages like `about` or `contact`).
-- Real pages and protected paths always win.
-
-**404 monitor (1.1.0)**
-- Logs paths that return 404 (path, hit count, visitor agent; no IP address), capped at 5,000 URLs.
-- Spam score 0–100 from spam words, Japanese/Chinese/Cyrillic/Thai/Arabic text on sites in another language, hyphen chains and digit runs.
-- Filter by score, add selected or everything above a score to the dead list, or hide false alarms.
-
-**Search spam protection (1.1.0)**
-- Spam search phrases (`/?s=...`) return 410 + noindex before WordPress runs the search. Normal searches are untouched.
-- Optional `noindex` for every search results page. Add your own spam words.
-
-**Monitoring (1.1.0)**
-- Weekly background re-test in small WP-Cron batches, plus a "Run now" button.
-- Email alert listing URLs that no longer return 410, with a test-email button.
-
-**Sitemap**
-- `/dead-urls.xml` with `<lastmod>`; splits automatically above 50,000 URLs.
-- "Re-stamp lastmod" bulk action to ask for a fresh recrawl.
-- Auto-off end date (30 days by default) so it is not forgotten.
+- Real-page guard on import and again at request time; a page published later wins.
+- Exact path matching for listed URLs; query strings are ignored.
+- Rules refuse patterns that are too short or that also match ordinary pages (`about`, `contact`…).
 
 **Search Console tools**
-- Dashboard: URLs on the list, 410s served, "Recrawled by verified Googlebot X / Y".
-- Status tester with progress bar; flags redirects, soft 404s, plain 404s and host firewall blocks.
-- CSV report and a URL list for the Search Console Removals tool.
+- Dashboard: URLs on the list, 410s served, "Revisited by verified Googlebot X / Y".
+- CSV report and a URL list for the Removals tool.
 
 **Technical**
 - Purges WP Fastest Cache, LiteSpeed Cache, W3 Total Cache, WP Rocket and WP Super Cache when the list changes; 410 responses are never cached.
-- Nonces, admin-only access, prepared queries. IPs are stored only as a salted hash; the hit log is pruned automatically.
-- No external calls, no tracking, optional delete-all-data on uninstall.
+- Nonces, admin-only access, prepared queries. IPs are stored only as a salted hash; no IP address is stored by the 404 Monitor.
+- No external calls and no tracking. Optional delete-all-data on uninstall.
 
-## Install
+</details>
 
-1. Download `hacked-site-index-cleaner-vX.Y.Z.zip` from the [Releases](../../releases) page.
+## 📄 Client progress report
+
+Send the site owner proof that the cleanup is working, without technical noise.
+
+<p align="center"><img src="docs/report-example.png" alt="Example client progress report with KPI cards, trend charts and weekly table" width="640"></p>
+
+<sub>Example report with sample data.</sub>
+
+## 🚀 Install
+
+1. Download `hacked-site-index-cleaner-vX.Y.Z.zip` from the [**Releases**](../../releases) page.
 2. In WordPress: **Plugins → Add New → Upload Plugin**, choose the zip, install and activate.
 3. Open **Tools → Index Cleaner**.
 
+> [!TIP]
 > Use the zip from Releases. The green "Code → Download ZIP" button on GitHub creates a folder with a different name.
 
-## How to clean up Google's index after a hack
+## 🧭 Cleanup guide
 
 1. **Clean the site first** and make sure the spam pages are gone or no longer served as real content.
-2. Collect the spam URLs. In Search Console: **Indexing → Pages**, tick *Unsubmitted pages only*, open the *Indexed* list and **Export**. You can also export from **Performance → Pages**.
-3. In the plugin: **Add / Import**, upload the file, check the preview, **Import**.
+2. **Collect the spam URLs.** In Search Console: *Indexing → Pages*, tick *Unsubmitted pages only*, open the *Indexed* list and **Export**. Also check the plugin's **404 Monitor** for URLs the export missed.
+3. **Import** in the plugin (*Add / Import*), check the preview, click Import. Add **rules** for URL patterns.
 4. **Dashboard → Test all URLs.** Every URL should show 410.
-5. Open a few spam URLs and two real pages in a private browser window to confirm.
+5. Open a few spam URLs and two real pages in a private window to confirm.
 6. In Search Console: **Sitemaps → add `dead-urls.xml` → Submit.**
-7. For the most visible spam URLs, optionally use the **Removals** tool to hide them from results while the 410 takes effect.
+7. Optionally use the **Removals** tool for the most visible spam URLs.
 8. Watch **Indexing → Pages** and the plugin's Googlebot counter. Expect weeks, not days.
 9. After 3–4 weeks, remove `dead-urls.xml` from Search Console. Keep the plugin active as long as you want the URLs to stay gone.
 
-**Do not** block these URLs in `robots.txt`.
+> [!WARNING]
+> **Do not** block these URLs in `robots.txt`. Google must be able to crawl them to see the 410.
 
-## FAQ
+## 🆚 Why 410, and not 404, a redirect or robots.txt
 
-**Does it remove malware?**
+| Method | Result |
+|---|---|
+| ✅ **410 Gone** | Clear, permanent "removed" signal. Google usually drops these fastest. |
+| ⚠️ 404 Not Found | Works, but Google may keep rechecking for weeks. |
+| ❌ 301 redirect to the homepage | Google can treat it as a soft 404 and keep the spam URL alive. |
+| ❌ Blocking in robots.txt | Google can't crawl the URL, so it never sees the 410 and keeps it indexed. |
+
+## ❓ FAQ
+
+<details><summary><b>Does it remove malware?</b></summary>
 No. It only handles how Google sees the dead URLs. Use a security scanner and clean the site first.
+</details>
 
-**How long until the spam disappears from Google?**
+<details><summary><b>How long until the spam disappears from Google?</b></summary>
 Google decides. Small lists can clear in a couple of weeks; thousands of URLs usually take several weeks. The plugin makes sure Google gets a clear answer and a reason to come back.
+</details>
 
-**Should I use 410 or 404?**
+<details><summary><b>Should I use 410 or 404?</b></summary>
 410 is the clearer signal. Search Console reports both under "Not found (404)".
+</details>
 
-**Will it affect my real pages?**
-No. Matching is exact, the homepage and system paths are protected, and published content is skipped by default.
+<details><summary><b>Will it affect my real pages?</b></summary>
+No. Real published pages, the homepage and system paths are protected, and pattern rules never override them.
+</details>
 
-**What happens if I delete the plugin?**
+<details><summary><b>What happens if I delete the plugin?</b></summary>
 The listed URLs return 404 instead of 410. That still works, only slower. Keep it active until the spam is gone from the index.
+</details>
 
-**Can I use it for old pages that are not spam?**
+<details><summary><b>Can I use it for old pages that are not spam?</b></summary>
 Yes. It works for any URL you want Google to treat as permanently removed.
+</details>
 
-## Requirements
+<details><summary><b>Does the report email need anything special?</b></summary>
+It uses WordPress mail. If your host doesn't send mail reliably, add an SMTP plugin. Use the "Email it now" button to test.
+</details>
 
-- WordPress 5.8 or later
-- PHP 7.4 or later
+## 📦 Requirements
 
-## Status
+WordPress 5.8+ · PHP 7.4+
 
-Used in a real hacked-site cleanup of about 2,300 spam URLs: every URL returned 410 in the built-in test, and Google's verified crawler started revisiting the URLs within minutes of the sitemap being resubmitted. Version 1.1.0 passes PHP syntax checks and unit tests for URL parsing, spam scoring and rule matching, but has not been run on a wide range of WordPress setups, so try it on staging first. Bug reports and pull requests are welcome.
+## 🧪 Status
 
-## Changelog
+Used in a real hacked-site cleanup of about 2,300 spam URLs: every URL returned 410 in the built-in test, and Google's verified crawler started revisiting the URLs within minutes of the sitemap being resubmitted. Version 1.2.0 passes PHP syntax checks and unit tests for URL parsing, spam scoring, rule matching and report logic, but has not been run on a wide range of WordPress setups, so try it on staging first. Bug reports and pull requests are welcome.
 
-See [`readme.txt`](readme.txt). Latest: **1.1.0** – pattern rules, 404 monitor with spam score, search spam protection, weekly re-test with email alert. Upgrades from 1.0.x keep all data.
+## 📝 Changelog
 
-## License
+See [`readme.txt`](readme.txt). Latest: **1.2.0** – client progress report (print/PDF + scheduled email), redesigned dashboard. **1.1.0** – pattern rules, 404 monitor, search spam protection, weekly re-test alert.
+
+## 📜 License
 
 GPL-2.0-or-later
 
 ---
 
-Built by [BLSS – Best Local SEO Services & Development](https://bestlocalseoservices.com/).
+<div align="center">
+
+Built by [**BLSS – Best Local SEO Services & Development**](https://bestlocalseoservices.com/)
+
+</div>

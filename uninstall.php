@@ -14,6 +14,8 @@ $wpdb->query( "DROP TABLE IF EXISTS {$wpdb->prefix}icp_log" );  // phpcs:ignore
 $wpdb->query( "DROP TABLE IF EXISTS {$wpdb->prefix}icp_urls" ); // phpcs:ignore
 $wpdb->query( "DROP TABLE IF EXISTS {$wpdb->prefix}icp_rules" ); // phpcs:ignore
 $wpdb->query( "DROP TABLE IF EXISTS {$wpdb->prefix}icp_404" ); // phpcs:ignore
+$wpdb->query( "DROP TABLE IF EXISTS {$wpdb->prefix}icp_snap" ); // phpcs:ignore
+delete_option( 'icp_report_last_sent' );
 delete_option( 'icp_rules_cache' );
 delete_option( 'icp_retest_state' );
 delete_option( 'icp_last_retest' );

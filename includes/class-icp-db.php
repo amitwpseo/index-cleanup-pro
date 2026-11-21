@@ -43,6 +43,13 @@ class ICP_DB {
 			'retest_enabled'     => 1,
 			'alert_enabled'      => 1,
 			'alert_email'        => '',
+			'report_prepared_for'  => '',
+			'report_brand'         => 1,
+			'report_company'       => 'BLSS – Best Local SEO Services & Development',
+			'report_logo'          => '',
+			'report_email_enabled' => 0,
+			'report_email_to'      => '',
+			'report_email_freq'    => 'monthly', // weekly | monthly | quarterly
 		);
 	}
 
@@ -84,6 +91,9 @@ class ICP_DB {
 		}
 		if ( class_exists( 'ICP_Rules', false ) ) {
 			ICP_Rules::rebuild_cache();
+		}
+		if ( class_exists( 'ICP_Report', false ) ) {
+			ICP_Report::snapshot();
 		}
 	}
 
@@ -177,6 +187,19 @@ class ICP_DB {
   UNIQUE KEY path_hash (path_hash),
   KEY score (score),
   KEY status (status)
+) {$charset};"
+		);
+
+		$snap = $wpdb->prefix . 'icp_snap';
+		dbDelta(
+			"CREATE TABLE {$snap} (
+  snap_date date NOT NULL,
+  total int(10) unsigned NOT NULL DEFAULT 0,
+  hits bigint(20) unsigned NOT NULL DEFAULT 0,
+  gbot_seen int(10) unsigned NOT NULL DEFAULT 0,
+  test_ok int(10) unsigned NOT NULL DEFAULT 0,
+  test_bad int(10) unsigned NOT NULL DEFAULT 0,
+  PRIMARY KEY  (snap_date)
 ) {$charset};"
 		);
 

@@ -4,7 +4,7 @@ Tags: hacked site, 410, spam, seo, search console
 Requires at least: 5.8
 Tested up to: 6.8
 Requires PHP: 7.4
-Stable tag: 1.1.0
+Stable tag: 1.2.0
 License: GPLv2 or later
 
 Remove hacked-site spam URLs and dead pages from Google. 410 Gone + noindex, a dead-URL sitemap with lastmod, verified Googlebot recrawl tracking and a status tester.
@@ -28,6 +28,7 @@ This plugin does not scan for or remove malware. Clean the site first, then use 
 * 404 monitor: logs missing URLs, scores them for spam and adds them to the dead list in one click.
 * Search spam protection: spam search phrases (/?s=casino) get 410 + noindex; optional noindex for all search pages.
 * Weekly background re-test with an email alert if a URL stops returning 410.
+* Client progress report: KPIs, trend charts and a weekly table. Print / save as PDF or email weekly, monthly or quarterly. Optional branding.
 * No external calls, no tracking.
 
 == How to use ==
@@ -42,6 +43,12 @@ This plugin does not scan for or remove malware. Clean the site first, then use 
 Do NOT block these URLs in robots.txt.
 
 == Changelog ==
+
+= 1.2.0 =
+* New: client progress report (Report tab). One-page KPIs, line charts and a weekly table, printable / Save as PDF, or emailed weekly, monthly or quarterly. Optional "Prepared by" branding and logo.
+* New: the plugin saves one daily snapshot of the key numbers so the report can show a trend.
+* New: redesigned admin dashboard with a status hero, progress ring, KPI cards and trend charts.
+* Database upgrade is automatic; existing data is kept.
 
 = 1.1.0 =
 * New: pattern rules (starts with, contains, regex) with preview and safety checks.

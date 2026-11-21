@@ -69,7 +69,7 @@ class ICP_Admin {
 		$n = get_transient( $k );
 		if ( $n ) {
 			delete_transient( $k );
-			printf( '<div class="notice notice-%s is-dismissible"><p>%s</p></div>', esc_attr( $n[1] ), wp_kses_post( $n[0] ) );
+			printf( '<div class="notice inline notice-%s is-dismissible"><p>%s</p></div>', esc_attr( $n[1] ), wp_kses_post( $n[0] ) );
 		}
 	}
 
@@ -286,6 +286,36 @@ class ICP_Admin {
 				self::redirect( 'monitor', array( 'min' => $min ) );
 				break;
 
+			case 'save_report':
+				check_admin_referer( 'icp_report' );
+				$f = isset( $_POST['report_email_freq'] ) ? sanitize_key( $_POST['report_email_freq'] ) : 'monthly'; // phpcs:ignore
+				$was_on = (int) ICP_DB::setting( 'report_email_enabled' );
+				$on     = empty( $_POST['report_email_enabled'] ) ? 0 : 1; // phpcs:ignore
+				ICP_DB::update_settings(
+					array(
+						'report_prepared_for'  => isset( $_POST['report_prepared_for'] ) ? sanitize_text_field( wp_unslash( $_POST['report_prepared_for'] ) ) : '', // phpcs:ignore
+						'report_brand'         => empty( $_POST['report_brand'] ) ? 0 : 1, // phpcs:ignore
+						'report_company'       => isset( $_POST['report_company'] ) ? sanitize_text_field( wp_unslash( $_POST['report_company'] ) ) : '', // phpcs:ignore
+						'report_logo'          => isset( $_POST['report_logo'] ) ? esc_url_raw( wp_unslash( $_POST['report_logo'] ) ) : '', // phpcs:ignore
+						'report_email_enabled' => $on,
+						'report_email_to'      => isset( $_POST['report_email_to'] ) ? sanitize_email( wp_unslash( $_POST['report_email_to'] ) ) : '', // phpcs:ignore
+						'report_email_freq'    => isset( ICP_Report::frequencies()[ $f ] ) ? $f : 'monthly',
+					)
+				);
+				if ( $on && ! $was_on ) {
+					update_option( 'icp_report_last_sent', time(), false ); // start the clock: first email after one full period.
+				}
+				self::notice( 'Report settings saved.' );
+				self::redirect( 'report' );
+				break;
+
+			case 'report_send':
+				check_admin_referer( 'icp_report' );
+				$ok = ICP_Report::send( ICP_Report::recipient() );
+				self::notice( $ok ? 'Report emailed to ' . esc_html( ICP_Report::recipient() ) . '.' : 'WordPress could not send the email. Check your site\'s mail setup (an SMTP plugin usually fixes this).', $ok ? 'success' : 'error' );
+				self::redirect( 'report' );
+				break;
+
 			case 'retest_now':
 				check_admin_referer( 'icp_retest' );
 				if ( ICP_Tester::start( true ) ) {
@@ -351,6 +381,12 @@ class ICP_Admin {
 		$host = sanitize_file_name( ICP_Util::site_host() );
 		$date = gmdate( 'Y-m-d' );
 		nocache_headers();
+
+		if ( 'report' === $type ) {
+			header( 'Content-Type: text/html; charset=utf-8' );
+			echo ICP_Report::print_page(); // phpcs:ignore
+			exit;
+		}
 
 		if ( 'removals' === $type ) {
 			header( 'Content-Type: text/plain; charset=utf-8' );
@@ -463,16 +499,28 @@ class ICP_Admin {
 			'import'    => 'Add / Import',
 			'rules'     => 'Rules',
 			'monitor'   => '404 Monitor',
+			'report'    => 'Report',
 			'settings'  => 'Settings',
 		);
-		echo '<div class="wrap icp-wrap"><h1>Hacked Site Index Cleaner</h1>';
-		self::show_notice();
-		echo '<nav class="nav-tab-wrapper">';
+		$icons = array(
+			'dashboard' => 'dashicons-dashboard',
+			'urls'      => 'dashicons-list-view',
+			'import'    => 'dashicons-upload',
+			'rules'     => 'dashicons-filter',
+			'monitor'   => 'dashicons-warning',
+			'report'    => 'dashicons-chart-area',
+			'settings'  => 'dashicons-admin-generic',
+		);
+		echo '<div class="wrap icp-wrap"><h1 class="screen-reader-text">Hacked Site Index Cleaner</h1>';
+		echo '<div class="icp-head"><div class="icp-brand"><span class="icp-logo dashicons dashicons-shield-alt" aria-hidden="true"></span><div><div class="icp-title">Hacked Site Index Cleaner</div><div class="icp-tag">Get spam URLs out of Google · 410 Gone + noindex</div></div></div><span class="icp-ver">v' . esc_html( ICP_VERSION ) . '</span></div>';
+		echo '<nav class="icp-tabs" aria-label="Sections">';
 		foreach ( $tabs as $k => $l ) {
-			$active = ( $tab === $k || ( 'edit' === $tab && 'urls' === $k ) ) ? ' nav-tab-active' : '';
-			echo '<a class="nav-tab' . esc_attr( $active ) . '" href="' . esc_url( self::url( $k ) ) . '">' . esc_html( $l ) . '</a>';
+			$active = ( $tab === $k || ( 'edit' === $tab && 'urls' === $k ) ) ? ' is-active' : '';
+			echo '<a class="icp-tab' . esc_attr( $active ) . '" href="' . esc_url( self::url( $k ) ) . '"><span class="dashicons ' . esc_attr( $icons[ $k ] ) . '" aria-hidden="true"></span>' . esc_html( $l ) . '</a>';
 		}
-		echo '</nav><div class="icp-body">';
+		echo '</nav>';
+		self::show_notice();
+		echo '<div class="icp-body">';
 		switch ( $tab ) {
 			case 'urls':
 				self::tab_urls();
@@ -485,6 +533,9 @@ class ICP_Admin {
 				break;
 			case 'monitor':
 				self::tab_monitor();
+				break;
+			case 'report':
+				self::tab_report();
 				break;
 			case 'settings':
 				self::tab_settings();
@@ -508,27 +559,70 @@ class ICP_Admin {
 		$sm_url = home_url( '/dead-urls.xml' );
 		$exp    = wp_nonce_url( self::url( 'dashboard', array( 'icp_export' => 'csv' ) ), 'icp_export' );
 		$rem    = wp_nonce_url( self::url( 'dashboard', array( 'icp_export' => 'removals' ) ), 'icp_export' );
+
+		if ( ! $total ) {
+			$cls  = 'idle';
+			$head = 'No URLs on the list yet';
+			$sub  = 'Import your spam URLs to start the cleanup. Search Console exports work as they are.';
+		} elseif ( (int) $st->test_bad > 0 ) {
+			$cls  = 'warn';
+			$head = number_format_i18n( (int) $st->test_bad ) . ' URL(s) need attention';
+			$sub  = 'They did not return 410 in the last test. Open the URLs tab and filter by “Test failing”.';
+		} elseif ( (int) $st->untested > 0 ) {
+			$cls  = 'info';
+			$head = 'Run a status test';
+			$sub  = number_format_i18n( (int) $st->untested ) . ' of your ' . number_format_i18n( $total ) . ' URLs have not been tested yet.';
+		} else {
+			$cls  = 'ok';
+			$head = 'All ' . number_format_i18n( $total ) . ' URLs return 410 Gone';
+			$sub  = 'Google has revisited ' . number_format_i18n( $seen ) . ' so far. Expect several weeks for the full cleanup.';
+		}
+
+		$week = ICP_Report::weekly( ICP_Report::history(), 12 );
+		$p1   = array();
+		$p2   = array();
+		foreach ( $week as $w ) {
+			$lab  = gmdate( 'M j', strtotime( $w['date'] . ' UTC' ) );
+			$p1[] = array( $lab, $w['pct'] );
+			$p2[] = array( $lab, $w['hits'] );
+		}
 		?>
-		<div class="icp-cards">
-			<div class="icp-card"><span class="icp-num"><?php echo number_format_i18n( $total ); ?></span><span class="icp-lab">URLs on the list</span></div>
-			<div class="icp-card"><span class="icp-num"><?php echo number_format_i18n( (int) $st->hits ); ?></span><span class="icp-lab">410 responses served</span></div>
-			<div class="icp-card"><span class="icp-num"><?php echo number_format_i18n( $seen ); ?> <small>/ <?php echo number_format_i18n( $total ); ?></small></span><span class="icp-lab">Recrawled by verified Googlebot</span>
-				<div class="icp-bar"><span style="width:<?php echo esc_attr( $pct ); ?>%"></span></div><span class="icp-muted"><?php echo esc_html( $pct ); ?>%</span></div>
-			<div class="icp-card"><span class="icp-num"><?php echo number_format_i18n( (int) $st->test_ok ); ?> <small>OK</small> · <?php echo number_format_i18n( (int) $st->test_bad ); ?> <small>issues</small></span><span class="icp-lab">Last status test (<?php echo number_format_i18n( (int) $st->untested ); ?> untested)</span></div>
+		<section class="icp-hero icp-hero--<?php echo esc_attr( $cls ); ?>">
+			<div class="icp-hero-main">
+				<span class="icp-eyebrow"><?php echo $total ? 'Cleanup status' : 'Get started'; ?></span>
+				<h2><?php echo esc_html( $head ); ?></h2>
+				<p><?php echo esc_html( $sub ); ?></p>
+				<div class="icp-hero-actions">
+					<?php if ( $total ) : ?>
+						<button type="button" class="icp-btn icp-btn--light icp-test" data-scope="all">Test all URLs</button>
+						<button type="button" class="icp-btn icp-btn--ghost icp-test" data-scope="failing">Re-test non-410</button>
+						<a class="icp-btn icp-btn--ghost" href="<?php echo esc_url( self::url( 'report' ) ); ?>">Client report</a>
+					<?php else : ?>
+						<a class="icp-btn icp-btn--light" href="<?php echo esc_url( self::url( 'import' ) ); ?>">Add URLs</a>
+					<?php endif; ?>
+				</div>
+				<div class="icp-progress" hidden><div class="icp-bar icp-bar--onDark"><span></span></div><p class="icp-progress-text"></p></div>
+			</div>
+			<?php if ( $total ) : ?>
+			<div class="icp-ring" style="--p:<?php echo esc_attr( min( 100, $pct ) ); ?>" aria-label="<?php echo esc_attr( $pct ); ?> percent revisited by Google">
+				<div><b><?php echo esc_html( $pct ); ?>%</b><span>revisited by<br>Google</span></div>
+			</div>
+			<?php endif; ?>
+		</section>
+
+		<div class="icp-kpis">
+			<div class="icp-kpi"><span class="icp-ico icp-ico--blue dashicons dashicons-admin-links" aria-hidden="true"></span><div><span class="icp-num"><?php echo number_format_i18n( $total ); ?></span><span class="icp-lab">URLs on the list</span></div></div>
+			<div class="icp-kpi"><span class="icp-ico icp-ico--violet dashicons dashicons-shield" aria-hidden="true"></span><div><span class="icp-num"><?php echo number_format_i18n( (int) $st->hits ); ?></span><span class="icp-lab">410 responses served</span></div></div>
+			<div class="icp-kpi"><span class="icp-ico icp-ico--teal dashicons dashicons-visibility" aria-hidden="true"></span><div><span class="icp-num"><?php echo number_format_i18n( $seen ); ?><small> / <?php echo number_format_i18n( $total ); ?></small></span><span class="icp-lab">Revisited by verified Googlebot</span></div></div>
+			<div class="icp-kpi"><span class="icp-ico icp-ico--green dashicons dashicons-yes-alt" aria-hidden="true"></span><div><span class="icp-num"><?php echo number_format_i18n( (int) $st->test_ok ); ?><small> OK · <?php echo number_format_i18n( (int) $st->test_bad ); ?> issues</small></span><span class="icp-lab">Last test · <?php echo number_format_i18n( (int) $st->untested ); ?> untested</span></div></div>
+		</div>
+
+		<div class="icp-grid icp-grid--2">
+			<div class="icp-panel"><h2>Google revisits</h2><p class="icp-muted">Share of your URLs that verified Googlebot has requested.</p><?php echo ICP_Report::chart( $p1, '#0891b2', 100, '%' ); // phpcs:ignore ?></div>
+			<div class="icp-panel"><h2>410 responses served</h2><p class="icp-muted">Total “removed” answers given to visitors and bots.</p><?php echo ICP_Report::chart( $p2, '#7c3aed', 0, '' ); // phpcs:ignore ?></div>
 		</div>
 
 		<div class="icp-grid">
-			<div class="icp-panel">
-				<h2>Status test</h2>
-				<p>Requests each URL from this server and checks it really returns <strong>410</strong>. Test requests are not counted as hits.</p>
-				<p>
-					<button type="button" class="button button-primary icp-test" data-scope="all" <?php disabled( 0, $total ); ?>>Test all URLs</button>
-					<button type="button" class="button icp-test" data-scope="failing" <?php disabled( 0, $total ); ?>>Re-test non-410 only</button>
-				</p>
-				<div class="icp-progress" hidden><div class="icp-bar"><span></span></div><p class="icp-progress-text"></p></div>
-				<p class="icp-muted">If many URLs show <em>blocked by host</em>, the hosting firewall is challenging the server's own requests. That doesn't mean Google is blocked — open a few URLs in a private browser window to confirm.</p>
-			</div>
-
 			<div class="icp-panel">
 				<h2>Dead-URL sitemap</h2>
 				<?php if ( $sm_on ) : ?>
@@ -536,13 +630,13 @@ class ICP_Admin {
 					<p><a href="<?php echo esc_url( $sm_url ); ?>" target="_blank" rel="noopener"><code><?php echo esc_html( $sm_url ); ?></code></a></p>
 					<ol class="icp-steps">
 						<li>Search Console → <strong>Sitemaps</strong> → add <code>dead-urls.xml</code> → Submit.</li>
-						<li>Google recrawls the URLs, sees 410 and drops them. Watch <strong>Indexing → Pages</strong> and the Googlebot counter here.</li>
+						<li>Google recrawls the URLs, sees 410 and drops them.</li>
 						<li>After the end date the sitemap switches off. Then remove it in Search Console.</li>
 					</ol>
 				<?php else : ?>
 					<p><span class="icp-badge icp-warn">Off</span> <?php echo $s['sitemap_enabled'] ? 'End date has passed.' : 'Disabled in Settings.'; ?> Remove <code>dead-urls.xml</code> from Search Console if it is still listed there.</p>
 				<?php endif; ?>
-				<p class="icp-muted">Do not add these URLs to robots.txt — Google must be able to crawl them to see the 410.</p>
+				<p class="icp-muted">Do not add these URLs to robots.txt: Google must be able to crawl them to see the 410.</p>
 			</div>
 
 			<div class="icp-panel">
@@ -575,18 +669,18 @@ class ICP_Admin {
 			<div class="icp-panel">
 				<h2>Protection extras</h2>
 				<?php $mc = ICP_Monitor::counts(); ?>
-				<ul class="icp-list">
-					<li><strong><?php echo number_format_i18n( ICP_Rules::count() ); ?></strong> pattern rule(s) · <a href="<?php echo esc_url( self::url( 'rules' ) ); ?>">manage</a></li>
-					<li><strong><?php echo number_format_i18n( (int) $mc->fresh ); ?></strong> new 404 URLs logged, <strong><?php echo number_format_i18n( (int) $mc->likely ); ?></strong> look like spam · <a href="<?php echo esc_url( self::url( 'monitor' ) ); ?>">review</a></li>
-					<li><strong><?php echo number_format_i18n( ICP_Search::blocked_count() ); ?></strong> spam searches blocked (mode: <?php echo esc_html( $s['search_mode'] ); ?>)</li>
+				<ul class="icp-stats">
+					<li><strong><?php echo number_format_i18n( ICP_Rules::count() ); ?></strong><span>pattern rules</span><a href="<?php echo esc_url( self::url( 'rules' ) ); ?>">Manage</a></li>
+					<li><strong><?php echo number_format_i18n( (int) $mc->fresh ); ?></strong><span>new 404 URLs, <?php echo number_format_i18n( (int) $mc->likely ); ?> look like spam</span><a href="<?php echo esc_url( self::url( 'monitor' ) ); ?>">Review</a></li>
+					<li><strong><?php echo number_format_i18n( ICP_Search::blocked_count() ); ?></strong><span>spam searches blocked (<?php echo esc_html( $s['search_mode'] ); ?>)</span><a href="<?php echo esc_url( self::url( 'settings' ) ); ?>">Settings</a></li>
 				</ul>
 			</div>
 
 			<div class="icp-panel">
 				<h2>Export</h2>
-				<p><a class="button" href="<?php echo esc_url( $exp ); ?>">Download full report (CSV)</a></p>
-				<p><a class="button" href="<?php echo esc_url( $rem ); ?>">Download URL list for the Removals tool (TXT)</a></p>
-				<p class="icp-muted">Removals tool: Search Console → Removals → New request. It hides a URL for ~6 months while the 410 removes it for good. Sorted by most-hit first.</p>
+				<p><a class="button" href="<?php echo esc_url( $exp ); ?>">Full report (CSV)</a> <a class="button" href="<?php echo esc_url( $rem ); ?>">Removals tool list (TXT)</a></p>
+				<p class="icp-muted">Removals tool: Search Console → Removals → New request. It hides a URL for about 6 months while the 410 removes it for good. Sorted by most-hit first.</p>
+				<p class="icp-muted">If many URLs show <em>blocked by host</em> in a test, the hosting firewall is challenging the server's own requests. That doesn't mean Google is blocked; open a few URLs in a private window to confirm.</p>
 			</div>
 		</div>
 
@@ -597,7 +691,7 @@ class ICP_Admin {
 			if ( ! $hits ) {
 				echo '<p class="icp-muted">No hits yet.</p>';
 			} else {
-				echo '<table class="widefat striped"><thead><tr><th>Time</th><th>URL</th><th>Visitor</th></tr></thead><tbody>';
+				echo '<table class="widefat striped icp-table"><thead><tr><th>Time</th><th>URL</th><th>Visitor</th></tr></thead><tbody>';
 				foreach ( $hits as $h ) {
 					$who = $h->is_gbot ? '<span class="icp-badge icp-ok">Googlebot (verified)</span>' : esc_html( wp_trim_words( $h->user_agent, 12, '…' ) );
 					echo '<tr><td>' . esc_html( get_date_from_gmt( $h->hit_at, 'Y-m-d H:i' ) ) . '</td><td><code>/' . esc_html( (string) $h->path ) . '/</code></td><td>' . $who . '</td></tr>'; // phpcs:ignore
@@ -605,6 +699,60 @@ class ICP_Admin {
 				echo '</tbody></table>';
 			}
 			?>
+		</div>
+		<?php
+	}
+
+	private static function tab_report() {
+		$s    = ICP_DB::settings();
+		$view = wp_nonce_url( self::url( 'report', array( 'icp_export' => 'report' ) ), 'icp_export' );
+		$next = ICP_Report::next_due();
+		$freq = ICP_Report::frequencies();
+		?>
+		<div class="icp-panel">
+			<h2>Client progress report</h2>
+			<p>A clean one-page report you can send to the site owner: URLs on the list, removed answers served, how much of the list Google has revisited, and a trend. It never shows IP addresses or technical errors.</p>
+			<div class="icp-row">
+				<a class="icp-btn icp-btn--primary" href="<?php echo esc_url( $view ); ?>" target="_blank" rel="noopener">Open printable report / Save as PDF</a>
+				<form method="post" action="<?php echo esc_url( self::url( 'report' ) ); ?>" style="display:inline">
+					<?php wp_nonce_field( 'icp_report' ); ?>
+					<button name="icp_do" value="report_send" class="icp-btn icp-btn--outline">Email it now to <?php echo esc_html( ICP_Report::recipient() ); ?></button>
+				</form>
+			</div>
+			<p class="icp-muted">Numbers are saved once a day, so the trend grows from the day this version was installed.</p>
+		</div>
+
+		<form method="post" action="<?php echo esc_url( self::url( 'report' ) ); ?>" class="icp-panel">
+			<?php wp_nonce_field( 'icp_report' ); ?>
+			<input type="hidden" name="icp_do" value="save_report">
+			<h2>Report settings</h2>
+			<table class="form-table" role="presentation">
+				<tr><th scope="row"><label for="report_prepared_for">Prepared for</label></th><td><input type="text" id="report_prepared_for" name="report_prepared_for" value="<?php echo esc_attr( $s['report_prepared_for'] ); ?>" class="regular-text" placeholder="Client or company name"></td></tr>
+				<tr><th scope="row">Branding</th><td>
+					<label><input type="checkbox" name="report_brand" value="1" <?php checked( 1, (int) $s['report_brand'] ); ?>> Show “Prepared by” in the report footer</label><br>
+					<p><label for="report_company">Company name</label><br><input type="text" id="report_company" name="report_company" value="<?php echo esc_attr( $s['report_company'] ); ?>" class="regular-text"></p>
+					<p><label for="report_logo">Logo URL (optional)</label><br><input type="url" id="report_logo" name="report_logo" value="<?php echo esc_attr( $s['report_logo'] ); ?>" class="regular-text" placeholder="https://…/logo.png"></p>
+					<p class="description">Use a light or white logo: it sits on the dark blue header.</p>
+				</td></tr>
+				<tr><th scope="row">Email the report</th><td>
+					<label><input type="checkbox" name="report_email_enabled" value="1" <?php checked( 1, (int) $s['report_email_enabled'] ); ?>> Send the report automatically</label>
+					<p>
+						<select name="report_email_freq">
+							<?php foreach ( $freq as $k => $f ) : ?>
+								<option value="<?php echo esc_attr( $k ); ?>" <?php selected( $k, $s['report_email_freq'] ); ?>><?php echo esc_html( $f[0] ); ?></option>
+							<?php endforeach; ?>
+						</select>
+						to <input type="email" name="report_email_to" value="<?php echo esc_attr( $s['report_email_to'] ); ?>" placeholder="<?php echo esc_attr( get_option( 'admin_email' ) ); ?>" class="regular-text">
+					</p>
+					<p class="description"><?php echo ( $s['report_email_enabled'] && $next ) ? 'Next email around ' . esc_html( get_date_from_gmt( gmdate( 'Y-m-d H:i:s', $next ), 'Y-m-d' ) ) . '.' : 'The first email goes out one full period after you turn this on. Leave the address empty to use the site admin email.'; ?></p>
+				</td></tr>
+			</table>
+			<p><button class="button button-primary">Save report settings</button></p>
+		</form>
+
+		<div class="icp-panel">
+			<h2>Preview</h2>
+			<div class="icp-report-preview"><?php echo ICP_Report::render( ICP_Report::data(), ICP_Report::options(), 'page' ); // phpcs:ignore ?></div>
 		</div>
 		<?php
 	}

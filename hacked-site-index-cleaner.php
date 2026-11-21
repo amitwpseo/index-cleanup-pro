@@ -3,7 +3,7 @@
  * Plugin Name:       Hacked Site Index Cleaner
  * Plugin URI:        https://github.com/amitwpseo/hacked-site-index-cleaner
  * Description:       Remove hacked-site spam URLs and dead pages from Google. Serves 410 Gone + noindex, a temporary dead-URL sitemap with lastmod, verified Googlebot recrawl tracking and a status tester. Never redirects, never touches real pages.
- * Version:           1.1.0
+ * Version:           1.2.0
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            BLSS – Best Local SEO Services & Development
@@ -29,8 +29,8 @@ if ( defined( 'ICP_VERSION' ) || class_exists( 'ICP_DB', false ) ) {
 	return;
 }
 
-define( 'ICP_VERSION', '1.1.0' );
-define( 'ICP_DB_VERSION', '3' );
+define( 'ICP_VERSION', '1.2.0' );
+define( 'ICP_DB_VERSION', '4' );
 define( 'ICP_FILE', __FILE__ );
 define( 'ICP_DIR', plugin_dir_path( __FILE__ ) );
 define( 'ICP_URL', plugin_dir_url( __FILE__ ) );
@@ -44,6 +44,7 @@ require_once ICP_DIR . 'includes/class-icp-rules.php';
 require_once ICP_DIR . 'includes/class-icp-monitor.php';
 require_once ICP_DIR . 'includes/class-icp-search.php';
 require_once ICP_DIR . 'includes/class-icp-tester.php';
+require_once ICP_DIR . 'includes/class-icp-report.php';
 
 if ( is_admin() ) {
 	require_once ICP_DIR . 'includes/class-icp-import.php';
@@ -56,6 +57,7 @@ register_deactivation_hook( __FILE__, array( 'ICP_DB', 'deactivate' ) );
 
 add_action( 'plugins_loaded', array( 'ICP_DB', 'maybe_upgrade' ) );
 add_action( 'icp_daily_cleanup', array( 'ICP_DB', 'prune_log' ) );
+add_action( 'icp_daily_cleanup', array( 'ICP_Report', 'daily' ) );
 
 ICP_Frontend::init();
 ICP_Search::init();
